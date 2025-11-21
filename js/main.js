@@ -50,7 +50,7 @@ class Game {
         
         this.player = new Player(this.camera, this.scene, this.audio);
         this.particles = new ParticleEmitter(this.scene, this.maze);
-        this.enemy = new Enemy(this.scene, this.player, this.maze);
+        this.enemy = new Enemy(this.scene, this.player, this.maze, this.audio);
 
         // 3. Bind UI Events
         this._bindEvents();
@@ -90,8 +90,10 @@ class Game {
                 overlay.classList.add('hidden');
                 this.ignoreMouseInput = true;
                 setTimeout(() => { this.ignoreMouseInput = false; }, 100);
+                if(this.audio) this.audio.togglePause(false);
             } else {
                 overlay.classList.remove('hidden');
+                if(this.audio) this.audio.togglePause(true);
                 if(this.isGameRunning) {
                     btnResume.classList.remove('hidden');
                 } else {
@@ -118,11 +120,17 @@ class Game {
     startNewGame(size) {
         if(size < 9) size = 9;
         
+        // Garante volume de volta (caso tenha sido mutado no stopAll)
+        this.audio.listener.setMasterVolume(1);
+        
         this.maze.generate(size);
         this.items.spawnItems(this.maze.data, 5);
         this.player.spawn(1, 1);
         this.ui.reset(size);
         
+        this.particles.reset(); // Limpa partículas antigas
+        this.audio.reset();     // Limpa sons bugados
+
         this.enemy.despawn();
 
         // CORREÇÃO: Reseta os controles para o player não andar sozinho
@@ -200,6 +208,8 @@ class Game {
             const enemyStatus = this.enemy.update(delta);
 
             if (enemyStatus === "GAME_OVER") {
+                this.audio.stopAll();
+                this.enemy.stopAudio();
                 alert("VOCÊ FOI PEGO! O Labirinto te consumiu.");
                 document.exitPointerLock();
                 this.startNewGame(this.maze.size);
@@ -220,6 +230,8 @@ class Game {
             const px = Math.floor(pos.x / CONFIG.CELL_SIZE);
             const pz = Math.floor(pos.z / CONFIG.CELL_SIZE);
             if(this.maze.data[px] && this.maze.data[px][pz] === 2) {
+                this.audio.stopAll();
+                this.enemy.stopAudio();
                 alert("Vitória! Você escapou.");
                 document.exitPointerLock();
                 this.isGameRunning = false;

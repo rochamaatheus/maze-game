@@ -37,9 +37,9 @@ export const CONFIG = {
         REACH: 4.5
     },
     ENEMY: {
-        baseSpeed: 9.0,
-        chaseSpeedMax: 13.0,
-        viewDistance: 15.0,
+        baseSpeed: 11.0,
+        chaseSpeedMax: 16.0,
+        viewDistance: 20.0,
         fov: Math.PI / 3,
         spawnRadiusMin: 30,
         spawnRadiusMax: 50,

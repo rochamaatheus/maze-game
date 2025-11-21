@@ -70,10 +70,13 @@ export class Player {
         this.camera.rotation.set(0,0,0);
         
         this.velocity.set(0,0,0);
+        this.velocity.set(0,0,0);
         this.stamina = CONFIG.STAMINA.MAX;
+        this.canSprint = true; // Reset Sprint
+        this.inventory = [null, null, null]; // Reset Inventário
         
-        this.hammerState.ready = true;
-        this.hammerState.cooldownTimer = 0;
+        this.hammerState.ready = false;
+        this.hammerState.cooldownTimer = 1.0; // 1 segundo de cooldown ao nascer
         this.camera.fov = CONFIG.PHYSICS.FOV_WALK;
         this.camera.updateProjectionMatrix();
     }

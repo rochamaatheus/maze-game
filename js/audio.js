@@ -142,4 +142,47 @@ export class AudioManager {
         bgm.setVolume(0.4);
         bgm.play();
     }
+
+    getBuffer(name) {
+        return this.sounds[name];
+    }
+
+    reset() {
+        // Para passos
+        if (this.footstepSound.isPlaying) {
+            this.footstepSound.stop();
+        }
+        this.wasMoving = false;
+        this.stepTimer = 0;
+
+        // Para impactos (opcional, mas bom garantir)
+        this.impactPool.forEach(sound => {
+            if(sound.isPlaying) sound.stop();
+        });
+    }
+
+    togglePause(isPaused) {
+        if(isPaused) {
+            this.listener.setMasterVolume(0);
+        } else {
+            this.listener.setMasterVolume(1);
+        }
+    }
+
+    stopAll() {
+        // Para tudo, inclusive ambiente
+        if (this.footstepSound.isPlaying) this.footstepSound.stop();
+        
+        this.impactPool.forEach(sound => {
+            if(sound.isPlaying) sound.stop();
+        });
+
+        // Opcional: Parar ambiente também se quiser silêncio total no Game Over
+        // Mas geralmente queremos manter a música de fundo ou trocá-la.
+        // O usuário pediu para parar "os sons", vou parar tudo por segurança.
+        // Se tiver música de menu, teria que tratar separado.
+        // Como o ambient.mp3 é meio "assustador", talvez seja bom parar.
+        // Vou parar tudo.
+        this.listener.setMasterVolume(0); 
+    }
 }

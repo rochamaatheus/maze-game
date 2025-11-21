@@ -2,26 +2,56 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 
 export class Enemy {
-    constructor(scene, player, mazeManager) {
+    constructor(scene, player, mazeManager, audioManager) {
         this.scene = scene;
         this.player = player;
         this.mazeManager = mazeManager;
+        this.audioManager = audioManager;
         
         this.isActive = false;
         this.mesh = null;
         this.visionCone = null;
         
-        this.state = 'SEARCHING'; 
+        this.state = 'SEARCHING'; // SEARCHING, CHASING, INVESTIGATING
+        this.lastKnownPosition = new THREE.Vector3();
         this.position = new THREE.Vector3(0, -100, 0); 
         this.velocity = new THREE.Vector3();
         
         this.lifeTimer = 0;      
         this.speedOscillator = 0;
 
+        // Audio
+        this.chaseSound = null;
+        this.footstepSound = null;
+        this.stepTimer = 0;
+
         // Raycaster exclusivo para ajustar o tamanho visual do cone
         this.visionRaycaster = new THREE.Raycaster();
 
         this._buildMesh();
+        this._setupAudio();
+    }
+
+    _setupAudio() {
+        if(!this.audioManager) return;
+        
+        // Cria o som posicional
+        this.chaseSound = new THREE.PositionalAudio(this.audioManager.listener);
+        this.chaseSound.setRefDistance(2);
+        this.chaseSound.setRolloffFactor(1);
+        this.chaseSound.setDistanceModel('exponential');
+        this.chaseSound.setVolume(1.5);
+        this.chaseSound.setLoop(true);
+        
+        this.mesh.add(this.chaseSound);
+
+        // Cria som de passos
+        this.footstepSound = new THREE.PositionalAudio(this.audioManager.listener);
+        this.footstepSound.setRefDistance(2);
+        this.footstepSound.setRolloffFactor(1);
+        this.footstepSound.setDistanceModel('exponential');
+        this.footstepSound.setVolume(1.0); // Passos pesados
+        this.mesh.add(this.footstepSound);
     }
 
     _buildMesh() {
@@ -53,10 +83,11 @@ export class Enemy {
         const coneMat = new THREE.MeshBasicMaterial({
             color: CONFIG.COLORS.ENEMY_VISION,
             transparent: true,
-            opacity: 0.08, // <--- BEM MAIS SUAVE (Quase invisível, só uma aura)
+            opacity: 0.08, 
             side: THREE.DoubleSide,
-            depthWrite: false, // Importante para transparência
-            blending: THREE.AdditiveBlending // <--- MISTURA DE LUZ (Não parece sólido)
+            depthWrite: false, 
+            blending: THREE.AdditiveBlending,
+            visible: false // ESCONDIDO
         });
         
         this.visionCone = new THREE.Mesh(coneGeo, coneMat);
@@ -91,6 +122,16 @@ export class Enemy {
                 this.isActive = true;
                 this.state = 'SEARCHING';
                 this.lifeTimer = CONFIG.ENEMY.lifeTime;
+                
+                // Tenta carregar o buffer se ainda não tiver (pode ter carregado depois do start)
+                if(this.chaseSound && !this.chaseSound.buffer) {
+                    const buff = this.audioManager.getBuffer('ambient'); // Placeholder
+                    if(buff) this.chaseSound.setBuffer(buff);
+                }
+                if(this.footstepSound && !this.footstepSound.buffer) {
+                    const buff = this.audioManager.getBuffer('step');
+                    if(buff) this.footstepSound.setBuffer(buff);
+                }
                 console.log("Inimigo Spawnado (Longe e Seguro)!");
                 validSpawn = true;
             }
@@ -102,6 +143,8 @@ export class Enemy {
         this.mesh.visible = false;
         this.position.set(0, -100, 0); 
         this.mesh.position.copy(this.position);
+        if(this.chaseSound && this.chaseSound.isPlaying) this.chaseSound.stop();
+        if(this.footstepSound && this.footstepSound.isPlaying) this.footstepSound.stop();
     }
 
     update(delta) {
@@ -117,8 +160,13 @@ export class Enemy {
                 this.despawn();
                 return null;
             }
+            if(this.chaseSound && this.chaseSound.isPlaying) this.chaseSound.stop();
         } else {
             this.lifeTimer = CONFIG.ENEMY.lifeTime;
+            // Toca som se estiver perseguindo ou investigando
+            if(this.chaseSound && !this.chaseSound.isPlaying && this.chaseSound.buffer) {
+                this.chaseSound.play();
+            }
         }
 
         this._checkVision();
@@ -127,6 +175,7 @@ export class Enemy {
         this._updateConeVisuals();
 
         this._move(delta);
+        this._updateSteps(delta);
 
         this.mesh.position.copy(this.position);
         const targetRot = Math.atan2(this.velocity.x, this.velocity.z);
@@ -179,8 +228,11 @@ export class Enemy {
         const dist = toPlayer.length();
 
         if (dist > CONFIG.ENEMY.viewDistance) {
-            this.state = 'SEARCHING';
-            this.visionCone.material.color.setHex(0xff0000); 
+            if(this.state === 'CHASING') {
+                this.state = 'INVESTIGATING';
+                this.lastKnownPosition.copy(pPos);
+            }
+            // Se já estava INVESTIGATING, mantém. Se estava SEARCHING, mantém.
             return;
         }
 
@@ -203,13 +255,15 @@ export class Enemy {
 
             if (!blocked) {
                 this.state = 'CHASING';
-                this.visionCone.material.color.setHex(0xffff00); 
+                this.lastKnownPosition.copy(pPos); // Atualiza sempre que vê
                 return;
             }
         }
         
-        this.state = 'SEARCHING';
-        this.visionCone.material.color.setHex(0xff0000);
+        // Se perdeu visão mas estava perseguindo, vai investigar a última posição
+        if(this.state === 'CHASING') {
+            this.state = 'INVESTIGATING';
+        }
     }
 
     _move(delta) {
@@ -218,6 +272,14 @@ export class Enemy {
 
         if (this.state === 'CHASING') {
             desiredDir.subVectors(pPos, this.position).normalize();
+        } else if (this.state === 'INVESTIGATING') {
+            // Vai até a última posição conhecida
+            const distToTarget = this.position.distanceTo(this.lastKnownPosition);
+            if(distToTarget < 1.0) {
+                this.state = 'SEARCHING'; // Chegou e não viu nada, desiste
+            } else {
+                desiredDir.subVectors(this.lastKnownPosition, this.position).normalize();
+            }
         } else {
             const noise = new THREE.Vector3(Math.random()-0.5, 0, Math.random()-0.5).multiplyScalar(2);
             desiredDir.subVectors(pPos, this.position).add(noise).normalize();
@@ -243,5 +305,31 @@ export class Enemy {
         } else {
             this.velocity.z *= -0.5;
         }
+    }
+
+    _updateSteps(delta) {
+        if(!this.footstepSound || !this.footstepSound.buffer) return;
+
+        // Só toca se estiver se movendo
+        const speed = this.velocity.length();
+        if(speed < 0.1) return;
+
+        this.stepTimer += delta;
+        // Passos mais rápidos se estiver correndo (CHASING)
+        const interval = (this.state === 'CHASING') ? 0.3 : 0.5;
+
+        if(this.stepTimer >= interval) {
+            this.stepTimer = 0;
+            if(this.footstepSound.isPlaying) this.footstepSound.stop();
+            
+            // Variação de pitch para soar assustador/pesado
+            this.footstepSound.setPlaybackRate(0.7 + Math.random() * 0.2);
+            this.footstepSound.play();
+        }
+    }
+
+    stopAudio() {
+        if(this.chaseSound && this.chaseSound.isPlaying) this.chaseSound.stop();
+        if(this.footstepSound && this.footstepSound.isPlaying) this.footstepSound.stop();
     }
 }

@@ -136,4 +136,13 @@ export class ParticleEmitter {
             old.geometry.dispose();
         }
     }
+
+    reset() {
+        this.chunks.forEach(chunk => {
+            this.scene.remove(chunk);
+            if(chunk.geometry) chunk.geometry.dispose();
+            if(chunk.material) chunk.material.dispose();
+        });
+        this.chunks = [];
+    }
 }
